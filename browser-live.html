@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hotameta live roster — EventSource example</title>
+<!--
+  Live games for a roster, straight from the browser — no server needed.
+  CORS is enabled on the public API, so this file works opened from disk,
+  hosted anywhere, or as an OBS browser source.
+
+  Usage: open as  browser-live.html?players=Alice,Bob
+  API reference: https://hotameta.com/api-docs
+-->
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; background: #0d0c0a; color: #e8e4d8;
+         margin: 2em; }
+  .game { display: flex; align-items: center; gap: .55em; flex-wrap: wrap;
+          padding: .7em 1em; margin: .6em 0; background: #1a150e;
+          border: 1px solid #8d7038; border-radius: 10px;
+          box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+  .game img { height: 26px; vertical-align: middle; }
+  .game img.portrait { height: 38px; border: 1px solid #8d7038; border-radius: 5px; }
+  .name { font-weight: 600; }
+  .rt { color: #d9b166; font-weight: 400; }
+  .hero { color: #9aa3b8; font-size: .82em; font-style: italic; }
+  .vs { color: #8d7038; font-weight: 700; font-size: .8em; letter-spacing: .1em;
+        text-transform: uppercase; margin: 0 .3em; }
+  .tpl { color: #f0d9a0; margin-left: auto; padding: .15em .6em;
+         border: 1px solid #8d7038; border-radius: 999px; font-size: .82em; }
+  #status { color: #7a8194; font-size: .78em; letter-spacing: .05em;
+            text-transform: uppercase; margin-bottom: .4em; }
+</style>
+</head>
+<body>
+<div id="status">connecting…</div>
+<div id="games"></div>
+<script>
+const players = new URLSearchParams(location.search).get('players') || 'YourHotAName';
+const games = new Map();   // p1_id -> game
+const $status = document.getElementById('status');
+const $games = document.getElementById('games');
+
+// Town, hero and flag art is hosted by hotameta.com itself — no wiki or
+// third-party assets. Each <img> hides itself if a name has no image.
+const ART = 'https://hotameta.com/static/img';
+
+function img(src, cls) {
+  const el = document.createElement('img');
+  el.src = src;
+  el.alt = '';
+  if (cls) el.className = cls;
+  el.onerror = () => el.remove();
+  return el;
+}
+
+function playerSide(name, rating, picks) {
+  const frag = document.createDocumentFragment();
+  if (picks) {
+    if (picks.color_name) frag.append(img(`${ART}/flags/${encodeURIComponent(picks.color_name)}_flag.png`));
+    if (picks.faction_name) frag.append(img(`${ART}/towns/${encodeURIComponent(picks.faction_name)}.png`));
+    if (picks.hero_name) frag.append(img(`${ART}/heroes/Hero_${encodeURIComponent(picks.hero_name)}.png`, 'portrait'));
+  }
+  const label = document.createElement('span');
+  label.className = 'name';
+  label.append(`${name} `);
+  const rt = document.createElement('span');
+  rt.className = 'rt';
+  rt.textContent = `(${rating})`;
+  label.append(rt);
+  frag.append(label);
+  if (picks && picks.hero_name) {
+    const hero = document.createElement('span');
+    hero.className = 'hero';
+    hero.textContent = picks.hero_name;
+    frag.append(hero);
+  }
+  return frag;
+}
+
+function render() {
+  $games.replaceChildren(...[...games.values()].map((g) => {
+    const div = document.createElement('div');
+    div.className = 'game';
+    const picks = g.picks || {};
+    div.append(playerSide(g.p1_name, g.p1_rating, picks.p1));
+    const vs = document.createElement('span');
+    vs.className = 'vs';
+    vs.textContent = g.p2_name ? 'vs' : '— waiting for opponent';
+    div.append(vs);
+    if (g.p2_name) div.append(playerSide(g.p2_name, g.p2_rating, picks.p2));
+    if (picks.template) {
+      const tpl = document.createElement('span');
+      tpl.className = 'tpl';
+      tpl.textContent = picks.template;
+      div.append(tpl);
+    }
+    return div;
+  }));
+  if (!games.size) $games.textContent = 'no games right now';
+}
+
+function connect() {
+  const es = new EventSource(
+    'https://hotameta.com/api/lobby/stream?players=' + encodeURIComponent(players));
+
+  es.onopen = () => { $status.textContent = 'live — ' + players; };
+
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'snapshot') {
+      // Full state every ~60s and on every (re)connect: just replace.
+      games.clear();
+      (msg.games || []).forEach((g) => games.set(g.p1_id, g));
+    } else if (msg.type === 'delta') {
+      (msg.added || []).forEach((g) => games.set(g.p1_id, g));
+      (msg.updated || []).forEach((g) => games.set(g.p1_id, g));
+      (msg.removed || []).forEach((id) => games.delete(id));
+    } else {
+      return; // keepalive
+    }
+    render();
+  };
+
+  // EventSource retries dropped connections on its own, and the snapshot
+  // re-syncs us afterwards. The one case it gives up on is a non-2xx
+  // response (e.g. a server restart's 502) — recreate it for that.
+  es.onerror = () => {
+    $status.textContent = 'reconnecting…';   // last state stays visible
+    if (es.readyState === EventSource.CLOSED) {
+      setTimeout(connect, 5000);
+    }
+  };
+}
+
+connect();
+</script>
+</body>
+</html>
