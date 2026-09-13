@@ -25,11 +25,36 @@ browser sources) can call the API directly with no server in between.
 
 | File | What it shows |
 |------|---------------|
+| [`hotameta-overlay.js`](hotameta-overlay.js) | **Drop-in library** — owns the stream, reconnect, stall detection and restart-aware change detection; you write only the rendering |
+| [`overlay-statusbar.html`](overlay-statusbar.html) | A stream status bar built on that library, ~30 lines of your own code |
 | [`browser-live.html`](browser-live.html) | Live games for a roster, plain `EventSource`, works as an OBS browser source |
 | [`node-live.js`](node-live.js) | Node 18+ stream consumer with reconnect + stall detection, no dependencies |
 | [`python-live.py`](python-live.py) | Python stream consumer (`requests`), reconnect + stall detection |
 | [`obs-overlay.md`](obs-overlay.md) | Ready-made stream overlay in one URL — no code at all |
 | [`chat-bots.md`](chat-bots.md) | StreamElements / Nightbot / Cloudbot commands |
+
+## Writing an overlay? Start with the library
+
+Every overlay ends up re-implementing the same 100 lines: hold the stream,
+reconcile `snapshot` against `delta`, reconnect sanely, notice when a restart
+changed the picks, refresh today's score when a game ends. That is
+[`hotameta-overlay.js`](hotameta-overlay.js) — MIT, no dependencies, one file:
+
+```html
+<script src="hotameta-overlay.js"></script>
+<script>
+hotameta.watch('YourHotAName', {
+  onGame(g)   { /* a game started or changed — render it */ },
+  onIdle()    { /* no live game — hide your bar */ },
+  onToday(t)  { /* { wins, losses, current_rating, rating_change } */ },
+});
+</script>
+```
+
+It also carries `hotameta.art.flag() / .town() / .hero() / .heroSmall()` for
+image URLs. Use those rather than building `/static/` paths by hand — the art
+is keyed by **name** (`Hero_Loynis_small.png`), not by hero id, and if the
+layout ever moves, updating this file keeps your overlay working.
 
 ## Ground rules
 

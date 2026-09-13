@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hotameta status bar — hotameta-overlay.js example</title>
+<!--
+  A stream status bar in ~30 lines of your own code.
+
+  Everything fiddly — holding the SSE connection, snapshot/delta
+  reconciliation, reconnect with backoff, stall detection, and noticing a
+  restart re-pick — lives in hotameta-overlay.js. You write the rendering.
+
+  Usage: open as  overlay-statusbar.html?player=YourHotAName
+  Drop it straight into OBS as a browser source (1280x90 or so) and set a
+  custom CSS of  body { background: transparent; }  if you want it keyed.
+-->
+<script src="hotameta-overlay.js"></script>
+<style>
+  body { margin: 0; font: 600 17px/1 'Segoe UI', system-ui, sans-serif;
+         color: #f0e6d2; background: #0d0c0a; }
+  #bar { display: flex; align-items: center; gap: .75em; padding: .5em .9em;
+         background: linear-gradient(#241d12, #14100a);
+         border-bottom: 2px solid #8d7038; }
+  #bar.idle { opacity: .45; }
+  img { height: 30px; vertical-align: middle; }
+  img.portrait { height: 34px; border: 1px solid #8d7038; border-radius: 4px; }
+  .tpl { margin: 0 auto; color: #f0d9a0; font-weight: 400; font-style: italic; }
+  .rt { color: #d9b166; font-weight: 400; font-size: .85em; }
+  .up { color: #6ede8a; } .down { color: #e86b6b; } .flat { color: #8a8779; }
+  #dot { width: .55em; height: .55em; border-radius: 50%; background: #6ede8a; }
+  #dot.reconnecting { background: #e8b06b; }
+</style>
+</head>
+<body>
+<div id="bar" class="idle">
+  <span id="dot"></span>
+  <span id="score" class="rt">0-0</span>
+  <span id="p1"></span>
+  <span class="tpl" id="tpl">waiting for a game…</span>
+  <span id="p2"></span>
+  <span id="rating" class="rt"></span>
+</div>
+
+<script>
+const player = new URLSearchParams(location.search).get('player') || 'YourHotAName';
+const $ = (id) => document.getElementById(id);
+
+// Art is keyed by NAME, not id — use the helpers and you can't get it wrong.
+function side(name, rating, p) {
+  const bits = [];
+  if (p) {
+    if (p.color_name)   bits.push(`<img src="${hotameta.art.flag(p.color_name)}">`);
+    if (p.faction_name) bits.push(`<img src="${hotameta.art.town(p.faction_name)}">`);
+    if (p.hero_name)    bits.push(`<img class="portrait" src="${hotameta.art.hero(p.hero_name)}">`);
+  }
+  bits.push(`${name} <span class="rt">(${rating ?? '—'})</span>`);
+  return bits.join(' ');
+}
+
+hotameta.watch(player, {
+  onGame(g) {
+    const p = g.picks || {};
+    $('bar').classList.remove('idle');
+    $('p1').innerHTML = side(g.p1_name, g.p1_rating, p.p1);
+    $('p2').innerHTML = side(g.p2_name || '—', g.p2_rating, p.p2);
+    $('tpl').textContent = p.template || 'in game';
+  },
+  onIdle() {
+    $('bar').classList.add('idle');
+    $('p1').innerHTML = $('p2').innerHTML = '';
+    $('tpl').textContent = 'waiting for a game…';
+  },
+  onToday(t) {
+    $('score').textContent = `${t.wins}-${t.losses}`;
+    const d = t.rating_change || 0;
+    const cls = d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
+    const sign = d > 0 ? '+' : '';
+    $('rating').innerHTML = `${t.current_rating} <span class="${cls}">(${sign}${d})</span>`;
+  },
+  onStatus(s) { $('dot').className = s === 'live' ? '' : 'reconnecting'; },
+});
+</script>
+</body>
+</html>
